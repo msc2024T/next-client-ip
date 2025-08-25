@@ -1,36 +1,197 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# next-client-ip
 
-## Getting Started
+A tiny helper for **Next.js** that gives you a **React hook** and an **API handler** to read the visitor's IP address.
 
-First, run the development server:
+- ✅ Works with **App Router** (`app/` & `route.ts`)
+- ✅ Also works with **Pages Router** (`pages/api/...`)
+- ✅ TypeScript ready
+- ✅ Multi-platform friendly (reads `x-forwarded-for`, `x-real-ip`, `cf-connecting-ip`)
+
+---
+
+## Install
 
 ```bash
-npm run dev
+npm install next-client-ip
 # or
-yarn dev
+yarn add next-client-ip
 # or
-pnpm dev
-# or
-bun dev
+pnpm add next-client-ip
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+**Peer deps:** Next.js ≥ 12, React ≥ 17
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+---
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Quick Start (App Router)
 
-## Learn More
+### 1) API route – `app/api/get-ip/route.ts`
 
-To learn more about Next.js, take a look at the following resources:
+```typescript
+import { ipHandler } from "next-client-ip";
+export { ipHandler as GET };
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+### 2) Client component – `app/page.tsx`
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```typescript
+"use client";
+import { useClientIP } from "next-client-ip";
 
-## Deploy on Vercel
+export default function Home() {
+  const { ip, loading, error } = useClientIP(); // defaults to /api/get-ip
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+  if (loading) return <p>Loading...</p>;
+  if (error) return <p>Error: {error}</p>;
+  return <p>Your IP: {ip}</p>;
+}
+```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Visit `/api/get-ip` to see:
+
+```json
+{ "ip": "203.0.113.45" }
+```
+
+On localhost you'll usually see `127.0.0.1` or `::1`. On production platforms (Vercel, Cloudflare, etc.), you'll see the real visitor IP.
+
+---
+
+## Usage with Pages Router
+
+⚠️ **Note:** `ipHandler` is built for the App Router.
+If your project still uses the Pages Router, you must create your own API handler.
+
+### 1) API route – `pages/api/get-ip.ts`
+
+```typescript
+export default function handler(req: NextApiRequest, res: NextApiResponse) {
+  try {
+    // Check various headers for the real IP
+    const forwardedFor = req.headers["x-forwarded-for"] as string;
+    const realIP = req.headers["x-real-ip"] as string;
+    const cfConnectingIP = req.headers["cf-connecting-ip"] as string;
+
+    let ip = "unknown";
+
+    if (cfConnectingIP) {
+      ip = cfConnectingIP;
+    } else if (realIP) {
+      ip = realIP;
+    } else if (forwardedFor) {
+      // Take the first IP from the forwarded-for chain
+      ip = forwardedFor.split(",")[0].trim();
+    }
+
+    res.status(200).json({ ip });
+  } catch (error) {
+    console.error("Error in IP handler:", error);
+    res.status(500).json({ error: "Failed to get IP address" });
+  }
+}
+```
+
+### 2) Client component
+
+```typescript
+"use client";
+import { useClientIP } from "next-client-ip";
+
+export default function Home() {
+  const { ip, loading, error } = useClientIP("/api/get-ip");
+
+  if (loading) return <p>Loading...</p>;
+  if (error) return <p>Error: {error}</p>;
+  return <p>Your IP: {ip}</p>;
+}
+```
+
+---
+
+## API Reference
+
+### Hook API
+
+```typescript
+useClientIP(apiPath?: string): { ip: string | null; loading: boolean; error: string | null }
+```
+
+- **apiPath:** defaults to `"/api/get-ip"`
+- **Returns:** an object with:
+  - `ip`: the IP address string once loaded, otherwise `null`
+  - `loading`: `true` while fetching, `false` when complete
+  - `error`: error message if request failed, otherwise `null`
+
+### Server Handler (App Router)
+
+```typescript
+ipHandler(request: Request): Promise<Response>
+```
+
+A Fetch-API style handler that intelligently reads IP from multiple headers in priority order:
+
+1. `cf-connecting-ip` (Cloudflare)
+2. `x-real-ip` (Nginx/reverse proxies)
+3. `x-forwarded-for` (standard proxy header)
+
+Returns JSON:
+
+```json
+{ "ip": "<string>" }
+```
+
+Or on error:
+
+```json
+{ "error": "Failed to get IP address" }
+```
+
+---
+
+## Example: Custom Route
+
+### API – `app/api/whoami/route.ts`
+
+```typescript
+import { ipHandler } from "next-client-ip";
+export { ipHandler as GET };
+```
+
+### Client
+
+```typescript
+"use client";
+import { useClientIP } from "next-client-ip";
+
+export default function WhoAmI() {
+  const { ip, loading, error } = useClientIP("/api/whoami");
+
+  if (loading) return <p>Loading...</p>;
+  if (error) return <p>Error: {error}</p>;
+  return <p>Your IP: {ip}</p>;
+}
+```
+
+---
+
+## Troubleshooting
+
+- **Getting `127.0.0.1` in production?** Make sure your deployment platform properly forwards IP headers (`x-forwarded-for`, `x-real-ip`, or `cf-connecting-ip`)
+- **Hook returns `null`?** Verify your API route is responding correctly at the specified path
+- **Getting "unknown" as IP?** The handler couldn't find any of the expected IP headers - check your proxy/CDN configuration
+
+---
+
+## Contributing
+
+PRs welcome.
+
+**Build:** `npm run lib:build`
+
+**Test** in a Next.js app (App Router recommended)
+
+---
+
+## License
+
+MIT © Mohammad Sepahi Chavoshloo
