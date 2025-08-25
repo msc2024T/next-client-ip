@@ -1,6 +1,6 @@
 "use client";
 
-import { useClientIP } from "@/src/hooks/useClientIP";
+import { useClientIP } from "next-client-ip";
 import { useEffect } from "react";
 
 export default function Home() {

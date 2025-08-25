@@ -1,3 +1,2 @@
-import { ipHandler } from "../../../src/api/get-ip";
-
+import { ipHandler } from "next-client-ip";
 export { ipHandler as GET };
